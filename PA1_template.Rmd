@@ -1,25 +1,112 @@
----
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
----
+#  Coursera Reproduceable Research Project 1
+    
+Input data activity.csv is downloaded and is in the current working directory. Let's first load the required library and read the file using read.csv function.
+
+## Loading Data ...
+    
+```{r}
+library(plyr)
+library(dplyr)
+library(lattice)
+col_names = c("Steps", "Date", "Interval")
+col_classes = c('character','character', 'numeric')
+activity_raw = read.csv("activity.csv", sep=",", quote = "\"", header=T, colClasses=col_classes, col.names=col_names, na.strings="NA")
+dim(activity_raw)
+```
+
+## Pre processing data ...
+We filter out NA records, convert date to Date format and store in "Date" column, then summarize data per day and get data ready for histogram.
+    
+```{r}
+activity = na.omit(activity_raw)
+activity$Date = as.Date(activity$Date, format="%Y-%m-%d")
+activity$Steps = as.numeric(activity$Steps)
+str(activity)
+act = ddply(activity, c("Date"), summarize, total_steps=sum(Steps))
+str(act)
+```
 
 
-## Loading and preprocessing the data
+## Histogram ...
+Histogram of total number of steps taken per day is 
+
+```{r fig.width=7, fig.height=6}
+with(act, hist(act$total_steps, col="red", main="Histogram of Steps Per day", xlab="", breaks=14))
+```
+
+## Mean and Median Steps per day ...
+
+Mean and median per day is this
+```{r}
+ddply(activity, c("Date"), summarize, total_steps=sum(Steps), mean_steps=mean(Steps), median_steps = median(Steps))
+```
+
+## Average daily activity pattern ...
+```{r fig.width=14, fig.height=6}
+act_interval = ddply(activity, c("Interval"), summarize, mean_steps=mean(Steps))
+with(act_interval, plot(Interval, mean_steps, type="l", col="blue", main="Average daily activiy pattern", xlab="Interval", ylab="Average Steps"))
+```
+
+###  5-miniute interval with maximum number of steps
+
+```{r}
+act_interval[which.max(act_interval$mean_steps),,]
+```
 
 
+## Imputing missing values ...
 
-## What is mean total number of steps taken per day?
+Total number of missing values in data set is 
+```{r}
+nrow(activity_raw) - nrow(activity)
+```
 
+Now lets device a Strategy to fill missing values. We cannot use daily averages because there are 8 full days for which data is missing. So we will use mean of the 5 minute interval as strategy to use missing values. To do this we will merge two data sets. We merge original raw data and mean for every interval data by Interval column. Then we add a new column new_steps to the data frame. This new_steps column will be equal to Steps is Steps is not NA. Else we make new_steps to be equal to mean for that interval.
 
+```{r}
+act_merge = merge(activity_raw, act_interval, by="Interval")
+act_merge = mutate(act_merge, new_steps=(ifelse((is.na(Steps)), mean_steps, Steps)))
+act_merge$new_steps = as.numeric(act_merge$new_steps)
+dim(act_merge)
 
-## What is the average daily activity pattern?
+a = ddply(act_merge, c("Date"), summarize, total_steps=sum(new_steps))
+```
 
+New histogram of total steps per day with missing filled in is ...
+```{r}
+act = ddply(act_merge, c("Date"), summarize, total_steps=sum(new_steps))
+with(act, hist(act$total_steps, col="red", main="Histogram Steps Per day - With missing data filled", xlab="Steps per day", breaks=14))
+```
 
+New mean and median with missing data filled in is ...
+```{r}
+act_mean_median = ddply(act_merge, c("Date"), summarize, total_steps=sum(new_steps), mean_steps=mean(new_steps), median_steps = median(new_steps))
+head(act_mean_median, 61)
+```
 
-## Imputing missing values
+Of 61 days of data recorded, 8 days of full data was missing in data set. With missing data filled, we fill the data for those 8 days. Total steps for other days does not change. Also only for those 8 days we get a median which is greater than zero. The median for other 53 days remains the same which is zero.
 
+## Difference in activity patterns in Weekdays and Weekends ...
 
+First we create a new column that stores the weekday for the day for every record. Then we filter the resulting data set into two data sets one wich which is a weekday dataset and another whcih is a weekend data set.
 
-## Are there differences in activity patterns between weekdays and weekends?
+``` {r}
+act_merge$Date = as.Date(act_merge$Date, format="%Y-%m-%d")
+act_merge = mutate (act_merge, weekday = weekdays(act_merge$Date))
+
+act_merge_weekday = filter(act_merge, weekday!='Saturday' & weekday!='Sunday')
+act_merge_weekend = filter(act_merge, weekday=='Saturday' | weekday=='Sunday')
+
+act_interval_weekday = ddply(act_merge_weekday, c("Interval"), summarize, mean_steps=mean(new_steps))
+act_interval_weekday = mutate(act_interval_weekday, day='Weekday')
+
+act_interval_weekend = ddply(act_merge_weekend, c("Interval"), summarize, mean_steps=mean(new_steps))
+act_interval_weekend = mutate(act_interval_weekend, day='Weekend')
+```
+
+rbind the two data frames (weekday and weekend) to get one data frame. Then convert day to a factor variable. 
+```{r}
+act_interval_day = rbind(act_interval_weekday, act_interval_weekend)
+act_interval_day = transform(act_interval_day, Day=factor(day))
+xyplot(mean_steps ~ Interval | Day, data=act_interval_day, type="l", layout=c(1,2))
+```
